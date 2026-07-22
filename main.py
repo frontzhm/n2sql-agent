@@ -30,44 +30,14 @@ import asyncio
 
 
 async def sse_stream():
-    """模拟 NLP-to-SQL 全流程进度推送的 SSE 生成器"""
-    # 按自然语言转 SQL 的真实处理流程编排步骤顺序：
-    # 抽取关键词 → 召回字段/指标/值 → 合并召回信息 → 过滤指标/表 → 添加上下文 → 生成 SQL → 验证 SQL → 执行 SQL
-    texts = [
-        {"type": "progress", "step": "抽取关键词", "status": "running"},
-        {"type": "progress", "step": "抽取关键词", "status": "success"},
-        {"type": "progress", "step": "召回字段", "status": "running"},
-        {"type": "progress", "step": "召回指标", "status": "running"},
-        {"type": "progress", "step": "召回值", "status": "running"},
-        {"type": "progress", "step": "召回值", "status": "success"},
-        {"type": "progress", "step": "召回字段", "status": "success"},
-        {"type": "progress", "step": "召回指标", "status": "success"},
-        {"type": "progress", "step": "合并召回信息", "status": "running"},
-        {"type": "progress", "step": "合并召回信息", "status": "success"},
-        {"type": "progress", "step": "过滤指标", "status": "running"},
-        {"type": "progress", "step": "过滤表", "status": "running"},
-        {"type": "progress", "step": "过滤指标", "status": "success"},
-        {"type": "progress", "step": "过滤表", "status": "success"},
-        {"type": "progress", "step": "添加额外上下文", "status": "running"},
-        {"type": "progress", "step": "添加额外上下文", "status": "success"},
-        {"type": "progress", "step": "生成 SQL", "status": "running"},
-        {"type": "progress", "step": "生成 SQL", "status": "success"},
-        {"type": "progress", "step": "验证 SQL", "status": "running"},
-        {"type": "progress", "step": "验证 SQL", "status": "success"},
-        {"type": "progress", "step": "执行 SQL", "status": "running"},
-        {
-            "type": "result",
-            "data": [
-                {"gender": "男", "sales_amount": 135370.5},
-                {"gender": "女", "sales_amount": 143789.0},
-            ],
-        },
-        {"type": "progress", "step": "执行 SQL", "status": "success"},
-    ]
-    # 逐条推送 SSE 事件，每条间隔 200ms 模拟异步处理延迟
-    for text in texts:
-        yield f"data: {json.dumps(text, ensure_ascii=False)}\n\n"
-        await asyncio.sleep(0.2)
+    """调用 LangGraph DAG，通过 stream_mode='custom' 接收节点推送的进度，以 SSE 流式输出"""
+    from app.agent.graph import graph, State
+
+    initial_state: State = {"error": None}
+    # stream_mode="custom" 只接收节点内通过 runtime.stream_writer 推送的消息
+    async for event in graph.astream(initial_state, stream_mode="custom"):
+        # graph.astream 只有一个输出通道时，event 就是节点推送的内容本身
+        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
 @app.post("/api/query")
