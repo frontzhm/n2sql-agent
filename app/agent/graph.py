@@ -1,8 +1,10 @@
 import asyncio
 import json
+
 from langgraph.graph import START, END, StateGraph
 from langgraph.runtime import Runtime
-from typing import Annotated, Dict, Any, TypedDict
+from typing import Annotated, Any, TypedDict
+
 
 
 # 节点函数 → 用户可见的中文步骤名映射
@@ -30,12 +32,14 @@ def push_progress(runtime: Runtime, step_name: str, status: str) -> None:
 # State 定义图中各节点间流转的共享状态
 # total=False 表示所有字段均为可选，避免每次返回都必须包含全部字段
 # 并行分支需要 reducer：单值用 last_value 覆盖
-class State(TypedDict, total=False):
-    error: Annotated[Any, lambda a, b: b]  # 冲突时保留最后一个值（last-value-wins）
+class State(TypedDict):
+    query: str 
+    keywords:list[str] 
+    error: str | None  
 
 
 # 运行时上下文，如数据库连接、LLM 客户端等长生命周期对象
-class RuntimeContext(TypedDict, total=False):
+class RuntimeContext(TypedDict):
     pass
 
 # ============================
@@ -43,12 +47,39 @@ class RuntimeContext(TypedDict, total=False):
 # ============================
 
 # 1. 从用户自然语言中提取关键词
-async def extract_keywords(state: State, runtime: Runtime) -> State:
+async def extract_keywords(state: State, runtime: Runtime[RuntimeContext]) -> State:
+    import jieba
+    import jieba.analyse
     push_progress(runtime, STEP_NAMES["extract_keywords"], "running")
-    await asyncio.sleep(1)
-    # TODO: 调用 LLM 提取关键词
+
+    query = state["query"]
+    if not query:
+        push_progress(runtime, STEP_NAMES["extract_keywords"], "error")
+        return {"keywords": []}
+
+    allow_pos = (
+        "n",   # 名词: 数据、服务器、表格
+        "nr",  # 人名: 张三、李四
+        "ns",  # 地名: 北京、上海
+        "nt",  # 机构团体名: 政府、学校、某公司
+        "nz",  # 其他专有名词: Unicode、哈希算法、诺贝尔奖
+        "v",   # 动词: 运行、开发
+        "vn",  # 名动词: 工作、研究
+        "a",   # 形容词: 美丽、快速
+        "an",  # 名形词: 难度、合法性、复杂度
+        "eng", # 英文
+        "i",   # 成语
+        "l",   # 常用固定短语
+    )
+
+    keywords = jieba.analyse.extract_tags(query, allowPOS=allow_pos)
+    keywords = [k for k in keywords if k != query]
+    keywords.append(query)
+
+    print(f"[extract_keywords] 抽取关键词：{keywords}")
+    push_progress(runtime, f"关键词：{keywords}", "running")
     push_progress(runtime, STEP_NAMES["extract_keywords"], "success")
-    return state
+    return {"keywords": keywords}
 
 # 2. 并行检索：召回相关字段（列名）
 async def recall_column(state: State, runtime: Runtime) -> State:
@@ -56,7 +87,7 @@ async def recall_column(state: State, runtime: Runtime) -> State:
     await asyncio.sleep(1)
     # TODO: 向量检索召回相关列
     push_progress(runtime, STEP_NAMES["recall_column"], "success")
-    return state
+    pass
 
 # 3. 并行检索：召回相关指标
 async def recall_metric(state: State, runtime: Runtime) -> State:
@@ -64,7 +95,7 @@ async def recall_metric(state: State, runtime: Runtime) -> State:
     await asyncio.sleep(1)
     # TODO: 向量检索召回相关指标
     push_progress(runtime, STEP_NAMES["recall_metric"], "success")
-    return state
+    pass
 
 # 4. 并行检索：召回相关枚举值
 async def recall_value(state: State, runtime: Runtime) -> State:
@@ -72,7 +103,7 @@ async def recall_value(state: State, runtime: Runtime) -> State:
     await asyncio.sleep(1)
     # TODO: 向量检索召回相关值
     push_progress(runtime, STEP_NAMES["recall_value"], "success")
-    return state
+    pass
 
 # 5. 汇总并行检索结果
 async def merge_retrieved_info(state: State, runtime: Runtime) -> State:
@@ -80,7 +111,7 @@ async def merge_retrieved_info(state: State, runtime: Runtime) -> State:
     await asyncio.sleep(1)
     # TODO: 去重、排序、合并
     push_progress(runtime, STEP_NAMES["merge_retrieved_info"], "success")
-    return state
+    pass
 
 # 6. 并行过滤：选出候选表
 async def filter_table(state: State, runtime: Runtime) -> State:
@@ -88,7 +119,7 @@ async def filter_table(state: State, runtime: Runtime) -> State:
     await asyncio.sleep(1)
     # TODO: LLM 选出最相关的表
     push_progress(runtime, STEP_NAMES["filter_table"], "success")
-    return state
+    pass
 
 # 7. 并行过滤：筛选相关指标
 async def filter_metric(state: State, runtime: Runtime) -> State:
@@ -96,7 +127,7 @@ async def filter_metric(state: State, runtime: Runtime) -> State:
     await asyncio.sleep(1)
     # TODO: LLM 筛选相关指标
     push_progress(runtime, STEP_NAMES["filter_metric"], "success")
-    return state
+    pass
 
 # 8. 补充额外上下文（如表结构、业务规则）
 async def add_extra_context(state: State, runtime: Runtime) -> State:
@@ -104,7 +135,7 @@ async def add_extra_context(state: State, runtime: Runtime) -> State:
     await asyncio.sleep(1)
     # TODO: 补充表结构、业务规则等上下文
     push_progress(runtime, STEP_NAMES["add_extra_context"], "success")
-    return state
+    pass
 
 # 9. 基于上下文 + 用户问题生成 SQL
 async def generate_sql(state: State, runtime: Runtime) -> State:
@@ -112,7 +143,7 @@ async def generate_sql(state: State, runtime: Runtime) -> State:
     await asyncio.sleep(1)
     # TODO: LLM 生成 SQL
     push_progress(runtime, STEP_NAMES["generate_sql"], "success")
-    return state
+    pass
 
 # 10. 校验 SQL 的语法与语义正确性
 async def validate_sql(state: State, runtime: Runtime) -> State:
@@ -120,7 +151,8 @@ async def validate_sql(state: State, runtime: Runtime) -> State:
     await asyncio.sleep(1)
     # TODO: SQL 语法校验
     push_progress(runtime, STEP_NAMES["validate_sql"], "success")
-    return state
+    pass
+    return {"error": None}
 
 # 11. 校验失败时对 SQL 进行修正
 async def correct_sql(state: State, runtime: Runtime) -> State:
@@ -128,7 +160,7 @@ async def correct_sql(state: State, runtime: Runtime) -> State:
     await asyncio.sleep(1)
     # TODO: LLM 修正 SQL
     push_progress(runtime, STEP_NAMES["correct_sql"], "success")
-    return state
+    pass
 
 # 12. 执行 SQL 并返回结果
 async def run_sql(state: State, runtime: Runtime) -> State:
@@ -143,7 +175,7 @@ async def run_sql(state: State, runtime: Runtime) -> State:
         ],
     })
     push_progress(runtime, STEP_NAMES["run_sql"], "success")
-    return state
+    pass
 
 # ============================
 # DAG 图构建
@@ -210,7 +242,7 @@ if __name__ == "__main__":
     print("=" * 50)
     print("执行图（正常路径）：")
     print("=" * 50)
-    initial_state: State = {"error": None}
+    initial_state: State = {"query": "各性别销售额分布", "error": None}
 
     async def run_demo():
         async for event in graph.astream(initial_state, stream_mode="custom"):

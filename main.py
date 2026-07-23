@@ -29,22 +29,22 @@ import json
 import asyncio
 
 
-async def sse_stream():
+async def sse_stream(query_text: str):
     """调用 LangGraph DAG，通过 stream_mode='custom' 接收节点推送的进度，以 SSE 流式输出"""
     from app.agent.graph import graph, State
 
-    initial_state: State = {"error": None}
+    initial_state: State = {"query": query_text, "error": None}
     # stream_mode="custom" 只接收节点内通过 runtime.stream_writer 推送的消息
     async for event in graph.astream(initial_state, stream_mode="custom"):
-        # graph.astream 只有一个输出通道时，event 就是节点推送的内容本身
         yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
 @app.post("/api/query")
-async def query():
+async def query(payload: dict):
     """自然语言查询入口，以 SSE 流式返回处理进度和最终结果"""
+    query_text = payload.get("query", "")
     return StreamingResponse(
-        sse_stream(),
+        sse_stream(query_text),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )
